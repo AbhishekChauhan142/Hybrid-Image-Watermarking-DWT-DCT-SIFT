@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 from .transforms import apply_dwt, apply_idwt, block_dct, block_idct, get_dct_blocks, rebuild_from_blocks
 
 
@@ -20,10 +21,15 @@ class Watermarker:
         out_blocks = []
         for i, b in enumerate(blocks):
             dct_b = block_dct(b)
+
+            # IMPROVEMENT: Adaptive Alpha based on block texture
+            texture_weight = 1 + (np.std(b) / 50.0)
+            local_strength = self.alpha * texture_weight
+
             if i < len(bits):
                 seq = pn1 if bits[i] == 1 else pn0
                 for idx, (r, c) in enumerate(self.mid_band):
-                    dct_b[r, c] += self.alpha * seq[idx]
+                    dct_b[r, c] += local_strength * seq[idx]
             out_blocks.append(block_idct(dct_b))
 
         new_HL = rebuild_from_blocks(out_blocks, HL.shape)
@@ -38,4 +44,8 @@ class Watermarker:
             dct_b = block_dct(blocks[i])
             coeffs = np.array([dct_b[r, c] for r, c in self.mid_band])
             bits.append(255 if np.mean(coeffs * pn1) > np.mean(coeffs * pn0) else 0)
-        return np.array(bits).reshape(wm_shape).astype(np.uint8)
+
+        raw_logo = np.array(bits).reshape(wm_shape).astype(np.uint8)
+
+        # IMPROVEMENT: Clean up extraction noise
+        return cv2.medianBlur(raw_logo, 3)
