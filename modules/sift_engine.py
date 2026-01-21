@@ -6,36 +6,22 @@ class SIFTEngine:
     def __init__(self):
         self.sift = cv2.SIFT_create()
 
-    def get_features(self, image):
-        # Convert to uint8 for SIFT
-        img_uint8 = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
-        kp, des = self.sift.detectAndCompute(img_uint8, None)
-        return kp, des
+    def get_features(self, img):
+        img8 = np.clip(img, 0, 255).astype('uint8')
+        return self.sift.detectAndCompute(img8, None)
 
-    def correct_geometric_attacks(self, attacked_image, original_kp, original_des):
-        kp_attacked, des_attacked = self.get_features(attacked_image)
+    def correct_geometric_attacks(self, attacked, ref_kp, ref_des):
+        kp_at, des_at = self.get_features(attacked)
+        if des_at is None: return attacked
 
-        if des_attacked is None or len(des_attacked) < 4:
-            return attacked_image
-
-        # Feature Matching
         bf = cv2.BFMatcher()
-        matches = bf.knnMatch(original_des, des_attacked, k=2)
+        matches = bf.knnMatch(ref_des, des_at, k=2)
+        good = [m for m, n in matches if m.distance < 0.75 * n.distance]
 
-        good_matches = []
-        for m, n in matches:
-            if m.distance < 0.75 * n.distance:
-                good_matches.append(m)
-
-        if len(good_matches) > 4:
-            src_pts = np.float32([original_kp[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-            dst_pts = np.float32([kp_attacked[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-
-            # Find RST (Rotation, Scale, Translation) matrix
-            M, mask = cv2.estimateAffinePartial2D(dst_pts, src_pts)
+        if len(good) > 10:
+            src_pts = np.float32([ref_kp[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+            dst_pts = np.float32([kp_at[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+            M, _ = cv2.estimateAffinePartial2D(dst_pts, src_pts)
             if M is not None:
-                h, w = attacked_image.shape
-                corrected_img = cv2.warpAffine(attacked_image, M, (w, h))
-                return corrected_img
-
-        return attacked_image
+                return cv2.warpAffine(attacked, M, (attacked.shape[1], attacked.shape[0]))
+        return attacked

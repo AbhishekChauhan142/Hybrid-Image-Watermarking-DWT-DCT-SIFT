@@ -12,20 +12,19 @@ from modules.attacks import apply_attack
 class WatermarkApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Cyber-Security: Hybrid Watermarking System v2.0")
+        self.title("Cyber-Security: Hybrid Watermarking System v2.0 (Manual Math)")
         self.geometry("1350x850")
         ctk.set_appearance_mode("Dark")
 
         # Logic Components
-        # Inside WatermarkApp.__init__
-        self.wm_logic = Watermarker(alpha=20.0)  # Higher alpha = More Robust
+        self.wm_logic = Watermarker(alpha=20.0)
         self.sift_engine = SIFTEngine()
 
         # --- Data State ---
         self.host_img = None
         self.logo_img = None
         self.watermarked_img = None
-        self.current_wm_image = None  # Tracks the latest (clean or attacked) image
+        self.current_wm_image = None
         self.ref_kp, self.ref_des = None, None
         self.wm_shape = (32, 32)
 
@@ -53,7 +52,7 @@ class WatermarkApp(ctk.CTk):
         ctk.CTkButton(self.sidebar, text="Save Watermarked", fg_color="#444444", command=self.save_result).pack(pady=5,
                                                                                                                 padx=20)
 
-        # SECTION: EXTRACTION (Highly Visible)
+        # SECTION: EXTRACTION
         ctk.CTkLabel(self.sidebar, text="3. VERIFICATION", font=("Segoe UI", 12, "bold"), text_color="gray").pack(
             pady=(20, 5))
         self.btn_extract = ctk.CTkButton(self.sidebar, text="EXTRACT NOW", fg_color="#f72585", hover_color="#b5179e",
@@ -99,17 +98,19 @@ class WatermarkApp(ctk.CTk):
         self.atk_slider = ctk.CTkSlider(self.analysis_card, from_=0, to=50, width=300)
         self.atk_slider.pack(pady=10)
 
-        ctk.CTkButton(self.analysis_card, text="Simulate Cyber Attack", fg_color="#d90429",
+        ctk.CTkButton(self.analysis_card, text="Simulate Attack", fg_color="#d90429",
                       command=self.run_attack_simulation).pack(pady=10)
 
-        # Metrics Output
+        # --- METRICS PANEL ---
         self.m_frame = ctk.CTkFrame(self.analysis_card, fg_color="#252525", corner_radius=10)
         self.m_frame.pack(fill="x", padx=20, pady=15)
 
-        self.lbl_psnr = ctk.CTkLabel(self.m_frame, text="PSNR: -- dB", font=("Consolas", 14))
+        self.lbl_psnr = ctk.CTkLabel(self.m_frame, text="PSNR: -- dB", font=("Consolas", 13))
         self.lbl_psnr.pack(side="left", expand=True, pady=10)
-        self.lbl_ssim = ctk.CTkLabel(self.m_frame, text="SSIM: --", font=("Consolas", 14))
+
+        self.lbl_ssim = ctk.CTkLabel(self.m_frame, text="SSIM: --", font=("Consolas", 13))
         self.lbl_ssim.pack(side="left", expand=True, pady=10)
+
         self.lbl_nc = ctk.CTkLabel(self.m_frame, text="NC: --", font=("Consolas", 18, "bold"), text_color="#4cc9f0")
         self.lbl_nc.pack(side="left", expand=True, pady=10)
 
@@ -118,7 +119,12 @@ class WatermarkApp(ctk.CTk):
     def load_host(self):
         path = filedialog.askopenfilename()
         if path:
-            self.host_img = cv2.imread(path, 0).astype(np.float32)
+            img = cv2.imread(path, 0)
+            h, w = img.shape
+            # Ensure even dimensions for manual DWT
+            new_h = h if h % 2 == 0 else h - 1
+            new_w = w if w % 2 == 0 else w - 1
+            self.host_img = cv2.resize(img, (new_w, new_h)).astype(np.float32)
             self.p_host.update_image(self.host_img)
 
     def load_logo(self):
@@ -135,18 +141,20 @@ class WatermarkApp(ctk.CTk):
             return
 
         self.watermarked_img = self.wm_logic.embed(self.host_img, self.logo_img, key=123)
-        self.current_wm_image = self.watermarked_img.copy()  # Set state to clean watermarked
+        self.current_wm_image = self.watermarked_img.copy()
         self.p_wm_view.update_image(self.watermarked_img)
 
-        # Register SIFT for geometric robustness
+        # SIFT Registration
         self.ref_kp, self.ref_des = self.sift_engine.get_features(self.watermarked_img)
 
-        # Calculate Imperceptibility Metrics
+        # Metrics: Host vs Clean Watermarked
         p = calculate_psnr(self.host_img, self.watermarked_img)
         s = calculate_ssim(self.host_img, self.watermarked_img)
-        self.lbl_psnr.configure(text=f"PSNR: {p:.2f} dB")
-        self.lbl_ssim.configure(text=f"SSIM: {s:.4f}")
-        messagebox.showinfo("Success", "Watermark embedded and SIFT features registered.")
+
+        self.lbl_psnr.configure(text=f"PSNR: {p:.2f} dB", text_color="white")
+        self.lbl_ssim.configure(text=f"SSIM: {s:.4f}", text_color="white")
+        self.lbl_nc.configure(text="NC: --")
+        messagebox.showinfo("Success", "Watermark embedded using manual logic.")
 
     def run_attack_simulation(self):
         if self.watermarked_img is None:
@@ -156,16 +164,21 @@ class WatermarkApp(ctk.CTk):
         atk_type = self.atk_menu.get()
         intensity = self.atk_slider.get()
 
-        # Generate attacked version
         attacked = apply_attack(self.watermarked_img, atk_type, intensity)
-        self.current_wm_image = attacked  # Update state to attacked image
+        self.current_wm_image = attacked
         self.p_wm_view.update_image(attacked)
 
-        messagebox.showinfo("Attack Simulated", f"Applied {atk_type}. Now click EXTRACT NOW.")
+        # Update PSNR/SSIM to show degradation
+        p = calculate_psnr(self.host_img, attacked)
+        s = calculate_ssim(self.host_img, attacked)
+
+        self.lbl_psnr.configure(text=f"PSNR: {p:.2f} dB", text_color="#ffb703")
+        self.lbl_ssim.configure(text=f"SSIM: {s:.4f}", text_color="#ffb703")
+        self.lbl_nc.configure(text="NC: Pending...")
 
     def manual_extract(self):
         if self.current_wm_image is None:
-            messagebox.showwarning("Warning", "Nothing to extract. Embed first!")
+            messagebox.showwarning("Warning", "Nothing to extract.")
             return
 
         # 1. Geometry Correction (SIFT)
@@ -179,15 +192,9 @@ class WatermarkApp(ctk.CTk):
         # 3. Update UI
         self.p_logo_out.update_image(extracted)
 
-        # 4. FIX: Calculate NC properly
+        # 4. Calculate Final NC
         nc_val = calculate_nc(self.logo_img, extracted)
-        self.lbl_nc.configure(text=f"NC: {nc_val:.4f}")
-
-        # Optional: update PSNR/SSIM for the current attacked view vs original host
-        p = calculate_psnr(self.host_img, self.current_wm_image)
-        s = calculate_ssim(self.host_img, self.current_wm_image)
-        self.lbl_psnr.configure(text=f"PSNR: {p:.2f} dB")
-        self.lbl_ssim.configure(text=f"SSIM: {s:.4f}")
+        self.lbl_nc.configure(text=f"NC: {nc_val:.4f}", text_color="#4cc9f0")
 
     def save_result(self):
         if self.watermarked_img is None: return
